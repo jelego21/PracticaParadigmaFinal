@@ -1,18 +1,3 @@
-"""
-=====================================================================
-  Generador de Árbol de Derivación y AST para Gramáticas Libres de Contexto
-  Docente: Alexander Narváez — ST0244 Lenguajes de Programación
-
-  Uso:
-      pip install PyQt5 matplotlib
-      python cfg_tree_generator.py
-=====================================================================
-
-Gramática implementada (expresión infija):
-    E → E '+' T | E '-' T | T
-    T → T '*' F | T '/' F | F
-    F → '(' E ')' | identifier | number
-"""
 
 import sys
 from PyQt5.QtWidgets import (
