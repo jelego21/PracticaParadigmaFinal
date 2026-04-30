@@ -1,25 +1,39 @@
+"""
+=====================================================================
+  Generador de Árbol de Derivación y AST para Gramáticas Libres de Contexto
+  Docente: Alexander Narváez — ST0244 Lenguajes de Programación
+
+  Uso:
+      pip install PyQt5 matplotlib
+      python cfg_tree_generator.py
+=====================================================================
+
+Gramática implementada (expresión infija):
+    E → E '+' T | E '-' T | T
+    T → T '*' F | T '/' F | F
+    F → '(' E ')' | identifier | number
+"""
 
 import sys
-import re
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
-    QTextEdit, QTabWidget, QSplitter, QFrame, QGroupBox, QScrollArea
+    QTextEdit, QTabWidget, QGroupBox, QScrollArea
 )
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QFont, QPainter, QPen, QBrush, QColor, QFontMetrics
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
 
 import matplotlib
-
 matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
 
 # ─────────────────────────────────────────────
 #   NODO DEL ÁRBOL
+#   Cada nodo tiene una etiqueta (ej. 'E', '+', 'x')
+#   y una lista de hijos. Nodos sin hijos = terminales (hojas).
 # ─────────────────────────────────────────────
 class Node:
     def __init__(self, label, children=None):
@@ -27,6 +41,7 @@ class Node:
         self.children = children or []
 
     def is_terminal(self):
+        """Un nodo es terminal si no tiene hijos (es una hoja del árbol)."""
         return len(self.children) == 0
 
     def __repr__(self):
@@ -37,24 +52,28 @@ class Node:
 
 # ─────────────────────────────────────────────
 #   TOKENIZADOR
+#   Convierte la cadena de entrada en una lista de tokens.
+#   Ejemplo: "(5*x)+y" → ['(', '5', '*', 'x', ')', '+', 'y']
 # ─────────────────────────────────────────────
 def tokenize(expr):
-    """Convierte la expresión en una lista de tokens."""
     tokens = []
     i = 0
     expr = expr.replace(' ', '')
     while i < len(expr):
         ch = expr[i]
         if ch in '()+-*/':
+            # Operadores y paréntesis → token de un solo carácter
             tokens.append(ch)
             i += 1
         elif ch.isalpha():
+            # Identificador: letras seguidas opcionalmente de dígitos o '_'
             j = i
             while j < len(expr) and (expr[j].isalpha() or expr[j].isdigit() or expr[j] == '_'):
                 j += 1
             tokens.append(expr[i:j])
             i = j
         elif ch.isdigit():
+            # Número: secuencia de dígitos
             j = i
             while j < len(expr) and expr[j].isdigit():
                 j += 1
@@ -67,20 +86,25 @@ def tokenize(expr):
 
 # ─────────────────────────────────────────────
 #   PARSER RECURSIVO DESCENDENTE
-#   Gramática:
-#     E → E '+' T | E '-' T | T
-#     T → T '*' F | T '/' F | F
-#     F → '(' E ')' | identifier | number
+#
+#   Implementa la gramática con precedencia correcta:
+#     E (suma/resta) < T (mult/div) < F (factor/átomo)
+#
+#   Se usa iteración en lugar de recursión izquierda pura
+#   para evitar recursión infinita, pero el árbol producido
+#   refleja la asociatividad izquierda correctamente.
 # ─────────────────────────────────────────────
 class Parser:
     def __init__(self, tokens):
         self.tokens = tokens
-        self.pos = 0
+        self.pos = 0  # Índice del token actual
 
     def peek(self):
+        """Devuelve el token actual sin consumirlo; None si se acabaron."""
         return self.tokens[self.pos] if self.pos < len(self.tokens) else None
 
     def consume(self, expected=None):
+        """Consume y retorna el token actual. Lanza error si no coincide con 'expected'."""
         tok = self.peek()
         if expected and tok != expected:
             raise SyntaxError(f"Se esperaba '{expected}', se encontró '{tok}'")
@@ -88,16 +112,29 @@ class Parser:
         return tok
 
     def parse_E(self):
-        """E → T (('+' | '-') T)*"""
+        """
+        Regla: E → T ('+' T | '-' T)*
+        Maneja suma y resta (menor precedencia).
+        Construye árbol con asociatividad izquierda:
+          a+b+c  →  E( E( E(T(a)), +, T(b) ), +, T(c) )
+        El resultado final se envuelve en un nodo E para que
+        la raíz del árbol siempre sea E.
+        """
         left = self.parse_T()
         while self.peek() in ('+', '-'):
             op = self.consume()
             right = self.parse_T()
+            # Acumular a la izquierda: el nuevo E tiene como hijo izquierdo
+            # la expresión ya construida
             left = Node('E', [left, Node(op), right])
         return Node('E', [left])
 
     def parse_T(self):
-        """T → F (('*' | '/') F)*"""
+        """
+        Regla: T → F ('*' F | '/' F)*
+        Maneja multiplicación y división (mayor precedencia que E).
+        Misma lógica de acumulación izquierda que parse_E.
+        """
         left = self.parse_F()
         while self.peek() in ('*', '/'):
             op = self.consume()
@@ -106,20 +143,26 @@ class Parser:
         return Node('T', [left])
 
     def parse_F(self):
-        """F → '(' E ')' | identifier | number"""
+        """
+        Regla: F → '(' E ')' | identifier | number
+        Maneja factores atómicos: subexpresiones entre paréntesis o valores.
+        """
         tok = self.peek()
         if tok == '(':
             self.consume('(')
             e = self.parse_E()
             self.consume(')')
+            # Conserva los paréntesis como hijos para el árbol de análisis completo
             return Node('F', [Node('('), e, Node(')')])
         elif tok is not None and tok not in ')+-*/':
+            # Identificador o número
             self.consume()
             return Node('F', [Node(tok)])
         else:
             raise SyntaxError(f"Token inesperado: '{tok}'")
 
     def parse(self):
+        """Punto de entrada: parsea la expresión completa."""
         tree = self.parse_E()
         if self.pos != len(self.tokens):
             raise SyntaxError(f"Token inesperado al final: '{self.peek()}'")
@@ -127,136 +170,242 @@ class Parser:
 
 
 # ─────────────────────────────────────────────
-#   DERIVACIONES
+#   CONJUNTO DE NO TERMINALES
 # ─────────────────────────────────────────────
 NT = {'E', 'T', 'F'}
 
 
-def node_to_symbols(node):
-    """Convierte un nodo en su lista de símbolos (terminales y no terminales)."""
+# ─────────────────────────────────────────────
+#   OBTENER SÍMBOLOS SUPERFICIALES DE UN NODO
+#
+#   Dado un nodo, retorna la lista de etiquetas de sus hijos
+#   directos. Esto equivale al lado derecho (RHS) de la
+#   producción que ese nodo representa.
+#
+#   Ejemplo: nodo E con hijos [E, +, T]  →  ['E', '+', 'T']
+# ─────────────────────────────────────────────
+def surface_symbols(node):
+    """
+    Retorna las etiquetas de los hijos directos de un nodo.
+    Equivale al RHS de la producción representada por ese nodo.
+    """
+    result = []
+    for child in node.children:
+        result.append(child.label)
+    return result
+
+
+# ─────────────────────────────────────────────
+#   RECOLECCIÓN ORDENADA DE PRODUCCIONES
+#
+#   Estrategia para derivaciones correctas:
+#
+#   En lugar de intentar modificar la forma sentencial mientras
+#   recorremos el árbol (lo cual genera inconsistencias), primero
+#   recolectamos TODAS las producciones en el orden correcto
+#   (izquierda o derecha), y luego las "reproducimos" una a una
+#   sobre la forma sentencial.
+#
+#   Una "producción" aquí es el par (NT, RHS) donde:
+#     NT  = símbolo no terminal que se expande
+#     RHS = lista de símbolos que lo reemplazan (sus hijos directos)
+# ─────────────────────────────────────────────
+
+def collect_productions_left(node):
+    """
+    Recorre el árbol en pre-orden izquierda → derecha.
+    Registra cada producción NT → RHS en ese orden.
+    El orden resultante coincide exactamente con la derivación
+    por la IZQUIERDA: siempre se expande el NT más a la izquierda.
+
+    Ejemplo para (5*x)+y:
+      E → E + T
+      E → T          (el E izquierdo)
+      T → F          (el T del E izquierdo)
+      F → ( E )
+      E → T          (el E dentro de paréntesis)
+      T → T * F
+      ...
+    """
+    productions = []
     if node.is_terminal():
-        return [node.label]
+        return productions
     if node.label in NT:
-        return [node.label]
-    return []
+        rhs = surface_symbols(node)
+        productions.append((node.label, rhs))
+    # Recorrer hijos de izquierda a derecha (orden natural)
+    for child in node.children:
+        productions.extend(collect_productions_left(child))
+    return productions
 
 
-def get_flat_symbols(node):
-    """Obtiene la forma sentencial actual expandiendo el árbol."""
+def collect_productions_right(node):
+    """
+    Recorre el árbol en pre-orden derecha → izquierda.
+    Registra cada producción NT → RHS en ese orden.
+    El orden resultante coincide con la derivación por la DERECHA:
+    siempre se expande el NT más a la derecha.
+    """
+    productions = []
     if node.is_terminal():
-        return [node.label]
-    if node.label in NT and len(node.children) == 0:
-        return [node.label]
-    return sum((get_flat_symbols(c) for c in node.children), [])
+        return productions
+    if node.label in NT:
+        rhs = surface_symbols(node)
+        productions.append((node.label, rhs))
+    # Recorrer hijos de derecha a izquierda
+    for child in reversed(node.children):
+        productions.extend(collect_productions_right(child))
+    return productions
+
+
+def apply_derivation(productions, from_right=False):
+    """
+    Reproduce los pasos de derivación sobre la forma sentencial.
+
+    Recibe la lista ordenada de producciones [(NT, RHS), ...]
+    y en cada paso:
+      1. Busca la primera (izquierda) o última (derecha) ocurrencia
+         del NT en la forma sentencial actual.
+      2. La reemplaza por su RHS.
+      3. Guarda el estado como un nuevo paso.
+
+    Retorna una lista de listas: cada lista interior es la forma
+    sentencial en ese paso de la derivación.
+
+    Ejemplo de salida para (5*x)+y, derivación izquierda:
+      ['E']
+      ['E', '+', 'T']
+      ['T', '+', 'T']
+      ['F', '+', 'T']
+      ['(', 'E', ')', '+', 'T']
+      ...
+      ['(', '5', '*', 'x', ')', '+', 'y']
+    """
+    current = ['E']          # La forma sentencial comienza con el símbolo de inicio
+    steps = [current[:]]     # Guardamos el estado inicial como primer paso
+
+    for (nt, rhs) in productions:
+        if from_right:
+            # Derivación derecha: buscar la ÚLTIMA ocurrencia del NT
+            idx = None
+            for i, sym in enumerate(current):
+                if sym == nt:
+                    idx = i          # Se sobrescribe en cada hallazgo → queda el último
+            if idx is None:
+                continue             # El NT ya fue expandido en un paso anterior, saltar
+        else:
+            # Derivación izquierda: buscar la PRIMERA ocurrencia del NT
+            idx = None
+            for i, sym in enumerate(current):
+                if sym == nt:
+                    idx = i
+                    break            # Parar en la primera ocurrencia
+            if idx is None:
+                continue
+
+        # Reemplazar el NT en la posición encontrada por su RHS
+        current = current[:idx] + rhs + current[idx + 1:]
+        steps.append(current[:])    # Guardar copia del nuevo estado
+
+    return steps
 
 
 def left_derivation(tree):
-    """Genera los pasos de derivación por la izquierda."""
-    steps = [['E']]
-
-    def expand(node, current):
-        if node.is_terminal():
-            return current
-        if node.label not in NT:
-            return current
-
-        # Reemplaza la PRIMERA ocurrencia del no terminal
-        rhs = sum((get_flat_symbols(c) for c in node.children), [])
-        for i, sym in enumerate(current):
-            if sym == node.label:
-                new_current = current[:i] + rhs + current[i + 1:]
-                steps.append(new_current[:])
-                # Expandir hijos en orden izquierda → derecha
-                result = new_current
-                for child in node.children:
-                    result = expand(child, result)
-                return result
-        return current
-
-    expand(tree, ['E'])
-    return steps
+    """
+    Genera todos los pasos de derivación por la IZQUIERDA.
+    Siempre expande el no terminal más a la izquierda en cada paso.
+    """
+    productions = collect_productions_left(tree)
+    return apply_derivation(productions, from_right=False)
 
 
 def right_derivation(tree):
-    """Genera los pasos de derivación por la derecha."""
-    steps = [['E']]
-
-    def expand(node, current):
-        if node.is_terminal():
-            return current
-        if node.label not in NT:
-            return current
-
-        rhs = sum((get_flat_symbols(c) for c in node.children), [])
-        # Reemplaza la ÚLTIMA ocurrencia del no terminal
-        last_idx = None
-        for i, sym in enumerate(current):
-            if sym == node.label:
-                last_idx = i
-        if last_idx is None:
-            return current
-
-        new_current = current[:last_idx] + rhs + current[last_idx + 1:]
-        steps.append(new_current[:])
-        result = new_current
-        # Expandir hijos en orden derecha → izquierda
-        for child in reversed(node.children):
-            result = expand(child, result)
-        return result
-
-    expand(tree, ['E'])
-    return steps
+    """
+    Genera todos los pasos de derivación por la DERECHA.
+    Siempre expande el no terminal más a la derecha en cada paso.
+    """
+    productions = collect_productions_right(tree)
+    return apply_derivation(productions, from_right=True)
 
 
 # ─────────────────────────────────────────────
 #   CONSTRUCCIÓN DEL AST
+#
+#   El AST (Árbol de Sintaxis Abstracta) simplifica el árbol
+#   de análisis eliminando:
+#     - Nodos intermedios redundantes (producciones unitarias)
+#     - Paréntesis (sólo sintaxis, sin semántica)
+#   Los operadores pasan a ser nodos raíz de sus subexpresiones.
 # ─────────────────────────────────────────────
 def build_ast(node):
-    """Construye el AST eliminando nodos redundantes."""
+    """
+    Construye el AST a partir del árbol de análisis completo.
+
+    Reglas de simplificación aplicadas:
+      - F → '(' E ')' : eliminar paréntesis, conservar subárbol de E
+      - F → id/num    : bajar directamente al terminal
+      - E/T con 1 hijo: colapsar (producción unitaria, ej. E → T)
+      - E/T con 3 hijos (izq op der): el operador es la raíz del nodo AST
+    """
     if node.is_terminal():
+        # Hoja: retornar como está
         return Node(node.label)
 
     if node.label == 'F':
         if len(node.children) == 3 and node.children[0].label == '(':
-            # F → '(' E ')' → simplificar, el AST del subárbol E
+            # F → '(' E ')': los paréntesis son azúcar sintáctica,
+            # en el AST sólo importa el subárbol de E
             return build_ast(node.children[1])
-        # F → identifier | number
+        # F → identifier | number: bajar al hijo terminal
         return build_ast(node.children[0])
 
     if node.label in ('E', 'T'):
         if len(node.children) == 1:
+            # Producción unitaria E → T o T → F: colapsar, no aporta información
             return build_ast(node.children[0])
         if len(node.children) == 3:
             # E → E op T  o  T → T op F
-            left = build_ast(node.children[0])
-            op = node.children[1].label
+            # En el AST el operador es la raíz, y los operandos sus hijos
+            left  = build_ast(node.children[0])
+            op    = node.children[1].label   # '+', '-', '*' o '/'
             right = build_ast(node.children[2])
             return Node(op, [left, right])
-        # Colapsar producciones unitarias anidadas
+        # Fallback: colapsar al primer hijo
         return build_ast(node.children[0])
 
+    # Nodo no reconocido: reconstruir recursivamente
     return Node(node.label, [build_ast(c) for c in node.children])
 
 
 # ─────────────────────────────────────────────
-#   LAYOUT DEL ÁRBOL (ALGORITMO DE POSICIONAMIENTO)
+#   LAYOUT DEL ÁRBOL (POSICIONAMIENTO X / Y)
+#
+#   Algoritmo simple de posicionamiento:
+#     - Las hojas reciben posiciones x enteras consecutivas
+#       (con un contador global compartido).
+#     - Los nodos internos toman el promedio x de sus hijos
+#       (así quedan centrados sobre ellos).
+#     - La profundidad determina y (negativa → raíz arriba).
 # ─────────────────────────────────────────────
 def layout_tree(node, depth=0, counter=None):
-    """Asigna coordenadas x/y a cada nodo."""
+    """Asigna coordenadas (x, y) a cada nodo para su visualización."""
     if counter is None:
-        counter = [0]
+        counter = [0]   # Lista de un elemento para poder modificarla en recursión
     node.depth = depth
     if not node.children:
+        # Hoja: asignar posición horizontal única y avanzar el contador
         node.x = counter[0]
         counter[0] += 1
     else:
+        # Nodo interno: posicionar hijos primero, luego centrar
         for child in node.children:
             layout_tree(child, depth + 1, counter)
         node.x = sum(c.x for c in node.children) / len(node.children)
-    node.y = -depth
+    node.y = -depth   # y negativo: la raíz (depth=0) queda arriba
 
 
 def collect_nodes(node, result=None):
+    """Recolecta todos los nodos del árbol en una lista plana (pre-orden)."""
     if result is None:
         result = []
     result.append(node)
@@ -266,9 +415,15 @@ def collect_nodes(node, result=None):
 
 
 # ─────────────────────────────────────────────
-#   WIDGET DE MATPLOTLIB PARA EL ÁRBOL
+#   CANVAS DE MATPLOTLIB EMBEBIDO EN QT
 # ─────────────────────────────────────────────
 class TreeCanvas(FigureCanvas):
+    """
+    Widget de Qt que embebe una figura de Matplotlib para
+    renderizar el árbol de análisis o el AST.
+      is_ast=False → paleta ámbar (árbol de análisis completo)
+      is_ast=True  → paleta azul  (AST simplificado)
+    """
     def __init__(self, parent=None, is_ast=False):
         self.fig = Figure(figsize=(7, 5), facecolor='white')
         self.ax = self.fig.add_subplot(111)
@@ -279,27 +434,28 @@ class TreeCanvas(FigureCanvas):
         self.fig.tight_layout(pad=0.5)
 
     def draw_tree(self, root):
+        """Limpia el canvas y dibuja el árbol desde la raíz dada."""
         self.ax.clear()
         self.ax.set_axis_off()
         if root is None:
             self.draw_idle()
             return
 
+        # Calcular posiciones x/y de todos los nodos
         layout_tree(root)
         nodes = collect_nodes(root)
 
-        # Escala
+        # Ajustar límites del gráfico con margen (padding)
         xs = [n.x for n in nodes]
         ys = [n.y for n in nodes]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
-        pad_x = max(0.5, (max_x - min_x) * 0.05)
-        pad_y = 0.5
-
+        pad_x = max(0.6, (max_x - min_x) * 0.08)
+        pad_y = 0.6
         self.ax.set_xlim(min_x - pad_x, max_x + pad_x)
         self.ax.set_ylim(min_y - pad_y, max_y + pad_y)
 
-        # Aristas
+        # Dibujar aristas (líneas de padre a hijo)
         for node in nodes:
             for child in node.children:
                 self.ax.plot(
@@ -307,16 +463,18 @@ class TreeCanvas(FigureCanvas):
                     color='#B4B2A9', linewidth=1.2, zorder=1
                 )
 
-        # Nodos
+        # Dibujar nodos: círculo coloreado + etiqueta
         for node in nodes:
-            is_nt = node.label in NT
+            is_nt = node.label in NT   # ¿Es un no terminal (E, T, F)?
+
+            # Paleta de colores según el tipo de árbol y de nodo
             if self.is_ast:
-                fill = '#E6F1FB' if is_nt else '#EAF3DE'
-                edge = '#185FA5' if is_nt else '#3B6D11'
+                fill       = '#E6F1FB' if is_nt else '#EAF3DE'
+                edge       = '#185FA5' if is_nt else '#3B6D11'
                 text_color = '#0C447C' if is_nt else '#27500A'
             else:
-                fill = '#FAEEDA' if is_nt else '#EAF3DE'
-                edge = '#BA7517' if is_nt else '#3B6D11'
+                fill       = '#FAEEDA' if is_nt else '#EAF3DE'
+                edge       = '#BA7517' if is_nt else '#3B6D11'
                 text_color = '#633806' if is_nt else '#27500A'
 
             circle = plt.Circle(
@@ -347,19 +505,20 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self):
+        """Construye toda la interfaz gráfica de la ventana."""
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
         root_layout.setSpacing(8)
         root_layout.setContentsMargins(12, 12, 12, 12)
 
-        # ── Título
+        # ── Título de la aplicación
         title = QLabel("Gramáticas Libres de Contexto — Árbol de Derivación y AST")
         title.setFont(QFont("Consolas", 13, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         root_layout.addWidget(title)
 
-        # ── Gramática
+        # ── Mostrar la gramática como referencia visual
         gram_box = QGroupBox("Gramática (expresión infija)")
         gram_layout = QVBoxLayout(gram_box)
         gram_text = QLabel(
@@ -372,7 +531,7 @@ class MainWindow(QMainWindow):
         gram_layout.addWidget(gram_text)
         root_layout.addWidget(gram_box)
 
-        # ── Entrada
+        # ── Campo de entrada + selección de tipo de derivación
         input_box = QGroupBox("Expresión de entrada")
         input_layout = QHBoxLayout(input_box)
 
@@ -383,6 +542,7 @@ class MainWindow(QMainWindow):
         self.expr_input.returnPressed.connect(self.generate)
         input_layout.addWidget(self.expr_input, 3)
 
+        # Radio buttons para elegir derivación izquierda o derecha
         deriv_group = QButtonGroup(self)
         self.radio_left = QRadioButton("Izquierda")
         self.radio_right = QRadioButton("Derecha")
@@ -398,66 +558,76 @@ class MainWindow(QMainWindow):
         btn.setFixedHeight(36)
         btn.clicked.connect(self.generate)
         input_layout.addWidget(btn)
-
         root_layout.addWidget(input_box)
 
-        # ── Ejemplos
+        # ── Botones de ejemplos rápidos (los mismos del PDF del docente)
         ex_layout = QHBoxLayout()
         ex_layout.addWidget(QLabel("Ejemplos:"))
         for expr in ["(5*x)+y", "x*y+z", "4+(a-b)*x", "2*4+8", "a+b*c-d"]:
             b = QPushButton(expr)
             b.setFont(QFont("Consolas", 10))
+            # lambda con valor por defecto para capturar 'expr' correctamente
             b.clicked.connect(lambda _, e=expr: self._set_expr(e))
             ex_layout.addWidget(b)
         ex_layout.addStretch()
         root_layout.addLayout(ex_layout)
 
-        # ── Error
+        # ── Etiqueta de error (visible sólo cuando hay un problema)
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: red; font-size: 12px;")
         root_layout.addWidget(self.error_label)
 
-        # ── Tabs de resultados
+        # ── Pestañas de resultados
         self.tabs = QTabWidget()
         self.tabs.setFont(QFont("Consolas", 10))
 
-        # Tab 1: Derivación
+        # Pestaña 1: Derivación paso a paso
         deriv_widget = QWidget()
         deriv_layout = QVBoxLayout(deriv_widget)
-        self.deriv_title = QLabel("Derivación por la izquierda:")
+        self.deriv_title = QLabel("Derivación:")
         self.deriv_title.setFont(QFont("Consolas", 11, QFont.Bold))
         deriv_layout.addWidget(self.deriv_title)
         self.deriv_text = QTextEdit()
-        self.deriv_text.setFont(QFont("Consolas", 11))
+        self.deriv_text.setFont(QFont("Consolas", 12))
         self.deriv_text.setReadOnly(True)
+        self.deriv_text.setStyleSheet("QTextEdit { background:#fafafa; padding:10px; }")
         deriv_layout.addWidget(self.deriv_text)
-        self.tabs.addTab(deriv_widget, "Derivación")
+        self.tabs.addTab(deriv_widget, "📋  Derivación paso a paso")
 
-        # Tab 2: Árbol de análisis
+        # Pestaña 2: Árbol de análisis sintáctico completo
         self.parse_canvas = TreeCanvas(is_ast=False)
         scroll1 = QScrollArea()
         scroll1.setWidget(self.parse_canvas)
         scroll1.setWidgetResizable(True)
-        self.tabs.addTab(scroll1, "Árbol de análisis sintáctico")
+        self.tabs.addTab(scroll1, "🌳  Árbol de análisis sintáctico")
 
-        # Tab 3: AST
+        # Pestaña 3: AST simplificado
         self.ast_canvas = TreeCanvas(is_ast=True)
         scroll2 = QScrollArea()
         scroll2.setWidget(self.ast_canvas)
         scroll2.setWidgetResizable(True)
-        self.tabs.addTab(scroll2, "AST (Árbol de Sintaxis Abstracta)")
+        self.tabs.addTab(scroll2, "✳️   AST (Árbol de Sintaxis Abstracta)")
 
         root_layout.addWidget(self.tabs)
 
     def _set_expr(self, expr):
+        """Carga un ejemplo en el campo de texto y genera automáticamente."""
         self.expr_input.setText(expr)
         self.generate()
 
     def generate(self):
+        """
+        Acción principal al presionar 'Generar' o Enter:
+          1. Tokeniza la expresión ingresada.
+          2. La parsea y construye el árbol de análisis.
+          3. Calcula la derivación (izquierda o derecha) paso a paso.
+          4. Muestra cada paso en la pestaña de derivación.
+          5. Dibuja el árbol de análisis y el AST en sus pestañas.
+        """
         self.error_label.setText("")
         raw = self.expr_input.text().strip()
 
-        # Tokenizar
+        # Paso 1: tokenizar la expresión cruda
         try:
             tokens = tokenize(raw)
         except ValueError as e:
@@ -468,7 +638,7 @@ class MainWindow(QMainWindow):
             self.error_label.setText("La expresión está vacía.")
             return
 
-        # Parsear
+        # Paso 2: parsear y construir el árbol de análisis sintáctico
         try:
             parser = Parser(tokens)
             tree = parser.parse()
@@ -476,42 +646,51 @@ class MainWindow(QMainWindow):
             self.error_label.setText(f"Error sintáctico: {e}")
             return
 
-        # Derivación
+        # Paso 3: calcular la derivación según la opción seleccionada
         side = 'left' if self.radio_left.isChecked() else 'right'
         if side == 'left':
             steps = left_derivation(tree)
-            self.deriv_title.setText("Derivación por la IZQUIERDA:")
+            self.deriv_title.setText(
+                "Derivación por la IZQUIERDA  "
+                "(en cada paso se expande el NT más a la izquierda):"
+            )
         else:
             steps = right_derivation(tree)
-            self.deriv_title.setText("Derivación por la DERECHA:")
+            self.deriv_title.setText(
+                "Derivación por la DERECHA  "
+                "(en cada paso se expande el NT más a la derecha):"
+            )
 
+        # Paso 4: formatear los pasos para mostrarlos
+        # Formato igual al de las diapositivas del docente:
+        #   E  ⇒  E + T  ⇒  T + T  ⇒  F + T  ⇒  ...
         lines = []
         for i, step in enumerate(steps):
-            arrow = "  ⇒  " if i > 0 else "E  ⇒  " if len(steps) > 1 else ""
             sym = ' '.join(step)
             if i == 0:
-                lines.append(sym)
+                lines.append(f"     {sym}")       # Primer paso: sin flecha
             else:
-                lines.append(f"  ⇒  {sym}")
+                lines.append(f"  ⇒  {sym}")       # Pasos siguientes: con flecha ⇒
 
         self.deriv_text.setPlainText("\n".join(lines))
 
-        # Árbol de análisis
+        # Paso 5a: dibujar el árbol de análisis sintáctico completo
         self.parse_canvas.draw_tree(tree)
 
-        # AST
+        # Paso 5b: construir el AST y dibujarlo
         ast_root = build_ast(tree)
         self.ast_canvas.draw_tree(ast_root)
 
+        # Mostrar la pestaña de derivación al generar
         self.tabs.setCurrentIndex(0)
 
 
 # ─────────────────────────────────────────────
-#   MAIN
+#   MAIN — Punto de entrada de la aplicación
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
+    app.setStyle('Fusion')   # Estilo visual moderno y consistente entre OS
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
