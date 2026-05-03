@@ -1,11 +1,3 @@
-"""
-cfg_backend.py — Lógica pura (sin GUI)
-Gramática:
-  E → E '+' T | E '-' T | T
-  T → T '*' F | T '/' F | F
-  F → '(' E ')' | identifier | number
-"""
-
 
 # Nodo del árbol: etiqueta + hijos. Sin hijos = terminal.
 class Node:
