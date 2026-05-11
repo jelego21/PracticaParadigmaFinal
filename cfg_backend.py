@@ -1,69 +1,61 @@
-
-# Nodo del árbol: etiqueta + hijos. Sin hijos = terminal.
+# nodes creation
 class Node:
-    def __init__(self, label, children=None):
+    def __init__(self, label, children=None): #label variable interna nodo (lo guarda)
         self.label    = label
         self.children = children or []
 
-    def is_terminal(self):
-        return len(self.children) == 0
+    def is_terminal(self): 
+        return len(self.children) == 0 #cuenta hijos
 
     def __repr__(self):
         if self.is_terminal():
             return self.label
-        return f"{self.label}({', '.join(repr(c) for c in self.children)})"
+        return f"{self.label}({', '.join(repr(c) for c in self.children)})" #objeto-string con label e hijos (usa bucle para mostrar hijos)
 
-
-# Convierte la expresión cruda en lista de tokens.
-# "(5*x)+y" → ['(', '5', '*', 'x', ')', '+', 'y']
-def tokenize(expr):
+def tokenize(expr): #convierte minima expresion a lista de tokens (separa)
     tokens = []
     i = 0
     expr = expr.replace(' ', '')
     while i < len(expr):
-        ch = expr[i]
+        ch = expr[i] #caracter actual
         if ch in '()+-*/':
-            tokens.append(ch)
+            tokens.append(ch)#sisi es un operador lo agrega
             i += 1
         elif ch.isalpha():
-            j = i
-            while j < len(expr) and (expr[j].isalpha() or expr[j].isdigit() or expr[j] == '_'):
+            j = i #cambio de indice para no afectar el original
+            while j < len(expr) and (expr[j].isalpha() or expr[j].isdigit()):
                 j += 1
-            tokens.append(expr[i:j])
+            tokens.append(expr[i:j])#forma identificadores que empiezan desde letra y lo para hasta que termina con otro id
             i = j
         elif ch.isdigit():
             j = i
             while j < len(expr) and expr[j].isdigit():
                 j += 1
-            tokens.append(expr[i:j])
+            tokens.append(expr[i:j]) 
             i = j
         else:
             raise ValueError(f"Carácter inválido: '{ch}'")
     return tokens
 
-
-# Parser recursivo descendente.
-# Usa iteración en vez de recursión izquierda pura para evitar recursión infinita,
-# pero el árbol generado respeta asociatividad izquierda.
-class Parser:
+class Parser: #interpeta tokens y construye el arbol
     def __init__(self, tokens):
         self.tokens = tokens
         self.pos    = 0
 
-    def peek(self):
-        # Token actual sin consumirlo.
+    def peek(self): #lee la pos del token avanzando sin consumir
         return self.tokens[self.pos] if self.pos < len(self.tokens) else None
 
-    def consume(self, expected=None):
-        # Consume el token actual; lanza SyntaxError si no coincide con 'expected'.
+    def consume(self, expected=None): #lee, consume y avanza (verifica error)
         tok = self.peek()
         if expected and tok != expected:
             raise SyntaxError(f"Se esperaba '{expected}', se encontró '{tok}'")
         self.pos += 1
         return tok
+    
+#FUNCIONES GRAMATICALES 
 
     def parse_E(self):
-        # E → T ('+' T | '-' T)*  — suma y resta (menor precedencia)
+        # E → T ('+' T | '-' T)
         left = self.parse_T()
         while self.peek() in ('+', '-'):
             op    = self.consume()
@@ -72,7 +64,7 @@ class Parser:
         return Node('E', [left])
 
     def parse_T(self):
-        # T → F ('*' F | '/' F)*  — multiplicación y división
+        # T → F ('*' F | '/' F)
         left = self.parse_F()
         while self.peek() in ('*', '/'):
             op    = self.consume()
