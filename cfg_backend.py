@@ -58,9 +58,9 @@ class Parser: #interpeta tokens y construye el arbol
         # E → T ('+' T | '-' T)
         left = self.parse_T()
         while self.peek() in ('+', '-'):
-            op    = self.consume()
+            op    = self.consume()   
             right = self.parse_T()
-            left  = Node('E', [left, Node(op), right])
+            left  = Node('E', [left, Node(op), right]) #crea nodo E con hijos:izq, op y der
         return Node('E', [left])
 
     def parse_T(self):
@@ -94,52 +94,35 @@ class Parser: #interpeta tokens y construye el arbol
             raise SyntaxError(f"Token inesperado al final: '{self.peek()}'")
         return tree
 
-
 # Conjunto de no terminales de la gramática.
 NT = {'E', 'T', 'F'}
 
-
-# ── DERIVACIONES ──────────────────────────────
-# Estrategia de dos fases:
-#   1. Recolectar producciones (NT, RHS) recorriendo el árbol en el orden correcto.
-#   2. Reproducirlas sobre la forma sentencial, guardando cada reemplazo como un paso.
-
 def _surface_symbols(node):
-    # Retorna las etiquetas de los hijos directos → equivale al RHS de la producción.
-    return [child.label for child in node.children]
-
+    return [child.label for child in node.children] #retorna las equiquetas originales de los hijos para cada nodo 
 
 def _collect_productions(node, reverse_children=False):
-    # Recorre el árbol en pre-orden y registra cada producción NT → RHS.
-    # reverse_children=False → izquierda→derecha (derivación izquierda)
-    # reverse_children=True  → derecha→izquierda (derivación derecha)
-    productions = []
+    # Recorre el árbol en pre-orden y registra cada producción.
+    productions = [] #acumulación de reglas
     if node.is_terminal():
         return productions
     if node.label in NT:
-        productions.append((node.label, _surface_symbols(node)))
-    children = reversed(node.children) if reverse_children else node.children
+        productions.append((node.label, _surface_symbols(node))) #escribe nodo actual y sus hijos en productions
+    children = reversed(node.children) if reverse_children else node.children #  si reverse_children es True entonces derecha izq (invierte el orden)
     for child in children:
         productions.extend(_collect_productions(child, reverse_children))
     return productions
 
-
 def _apply_derivation(productions, from_right=False):
-    # Por cada producción (NT, RHS): busca el NT en la forma sentencial actual
-    # (primera ocurrencia si izquierda, última si derecha), lo reemplaza por RHS
-    # y guarda el resultado como un nuevo paso.
-    current = ['E']        # Símbolo de inicio
-    steps   = [current[:]]
+    current = ['E']        # inicio del estado
+    steps   = [current[:]] #"copia" del estado actual 
 
     for (nt, rhs) in productions:
         if from_right:
-            # Última ocurrencia: recorrer todo, idx queda con el último hallazgo.
             idx = None
             for i, sym in enumerate(current):
                 if sym == nt:
                     idx = i
         else:
-            # Primera ocurrencia: parar en el primer hallazgo.
             idx = None
             for i, sym in enumerate(current):
                 if sym == nt:
@@ -154,24 +137,13 @@ def _apply_derivation(productions, from_right=False):
 
     return steps
 
-
 def left_derivation(tree):
-    # Genera los pasos expandiendo siempre el NT más a la izquierda.
     productions = _collect_productions(tree, reverse_children=False)
     return _apply_derivation(productions, from_right=False)
 
-
 def right_derivation(tree):
-    # Genera los pasos expandiendo siempre el NT más a la derecha.
     productions = _collect_productions(tree, reverse_children=True)
     return _apply_derivation(productions, from_right=True)
-
-
-# ── AST ───────────────────────────────────────
-# Simplifica el árbol de análisis:
-#   - Colapsa producciones unitarias (E→T, T→F).
-#   - Elimina paréntesis (solo sintaxis).
-#   - Los operadores pasan a ser nodos raíz.
 
 def build_ast(node):
     if node.is_terminal():
@@ -195,12 +167,6 @@ def build_ast(node):
 
     return Node(node.label, [build_ast(c) for c in node.children])
 
-
-# ── LAYOUT ────────────────────────────────────
-# Asigna coordenadas x/y a cada nodo para dibujarlo.
-# Hojas: x enteras consecutivas. Internos: promedio x de sus hijos.
-# y = -depth para que la raíz quede arriba.
-
 def layout_tree(node, depth=0, counter=None):
     if counter is None:
         counter = [0]  # Lista mutable para compartir el contador en recursión.
@@ -223,7 +189,6 @@ def collect_nodes(node, result=None):
     for c in node.children:
         collect_nodes(c, result)
     return result
-
 
 # Función de conveniencia: tokeniza, parsea y retorna todo de una vez.
 def process_expression(expr, side='left'):
