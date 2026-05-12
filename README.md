@@ -12,7 +12,7 @@ Practica Final diseñada meramente en Python
 
 # Lenguaje e IDE
 - Lenguaje: Python
-- IDE: PyCharm
+- IDE: Visual Studio
 - Python version: 3.10
 
 
