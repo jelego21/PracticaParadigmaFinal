@@ -130,7 +130,7 @@ def _apply_derivation(productions, from_right=False):
                     break
 
         if idx is None:
-            continue  # NT ya expandido en un paso anterior, saltar.
+            continue  # NT ya expandido en un paso anterior
 
         current = current[:idx] + rhs + current[idx + 1:]
         steps.append(current[:])
@@ -150,15 +150,14 @@ def build_ast(node):
         return Node(node.label)
 
     if node.label == 'F':
-        if len(node.children) == 3 and node.children[0].label == '(':
-            return build_ast(node.children[1])  # F → '(' E ')': eliminar paréntesis
-        return build_ast(node.children[0])       # F → id | num
+        if len(node.children) == 3 and node.children[0].label == '(': #revisa el caso (E) y devuelve solo E
+            return build_ast(node.children[1]) 
+        return build_ast(node.children[0])      
 
     if node.label in ('E', 'T'):
-        if len(node.children) == 1:
-            return build_ast(node.children[0])  # Producción unitaria: colapsar
-        if len(node.children) == 3:
-            # E → E op T / T → T op F: el operador es la raíz del nodo AST
+        if len(node.children) == 1: #produccion unitaria (E → T o T → F)
+            return build_ast(node.children[0])  
+        if len(node.children) == 3: #produccion binaria (E → E + T, T → T * F)
             left  = build_ast(node.children[0])
             op    = node.children[1].label
             right = build_ast(node.children[2])
@@ -167,30 +166,30 @@ def build_ast(node):
 
     return Node(node.label, [build_ast(c) for c in node.children])
 
-def layout_tree(node, depth=0, counter=None):
+def layout_tree(node, depth=0, counter=None): #calcular coords para el layout/depth es altura/ counter es x
     if counter is None:
-        counter = [0]  # Lista mutable para compartir el contador en recursión.
+        counter = [0]  
     node.depth = depth
-    if not node.children:
+    if not node.children: #si no es hoja le da valor en x
         node.x = counter[0]
         counter[0] += 1
     else:
-        for child in node.children:
+        for child in node.children: #recorre hijos y les asigna coordenadas
             layout_tree(child, depth + 1, counter)
-        node.x = sum(c.x for c in node.children) / len(node.children)
+        node.x = sum(c.x for c in node.children) / len(node.children) #por ultimo le da x al padre
     node.y = -depth
 
 
 def collect_nodes(node, result=None):
-    # Recolecta todos los nodos en una lista plana (pre-orden).
+    # Recolecta todos los nodos en una lista plana
     if result is None:
         result = []
-    result.append(node)
-    for c in node.children:
+    result.append(node) #agrega el nodo a la lista
+    for c in node.children: 
         collect_nodes(c, result)
     return result
 
-# Función de conveniencia: tokeniza, parsea y retorna todo de una vez.
+# Función de conveniencia: tokeniza, parsea y retorna todo de una vez (interfaz simplificada y main)
 def process_expression(expr, side='left'):
     tokens   = tokenize(expr)
     tree     = Parser(tokens).parse()
